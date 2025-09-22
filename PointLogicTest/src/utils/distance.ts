@@ -1,21 +1,28 @@
-export function distance(
+// 제곱 거리: sqrt 없이 임계 비교
+export function distanceSq(
   p1: { x: number; y: number },
   p2: { x: number; y: number }
 ) {
-  return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
+  const dx = p1.x - p2.x,
+    dy = p1.y - p2.y;
+  return dx * dx + dy * dy;
 }
 
-export function pointToSegmentDistance(
+export function pointToSegmentDistanceSq(
   p: { x: number; y: number },
   v: { x: number; y: number },
   w: { x: number; y: number }
 ) {
-  const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
-  if (l2 === 0) return distance(p, v);
+  const vx = w.x - v.x,
+    vy = w.y - v.y;
+  const l2 = vx * vx + vy * vy;
+  if (l2 === 0) return distanceSq(p, v);
 
-  let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
-  t = Math.max(0, Math.min(1, t));
+  // t = ((p - v) · (w - v)) / ||w - v||^2, clamp to [0,1]
+  let t = ((p.x - v.x) * vx + (p.y - v.y) * vy) / l2;
+  if (t < 0) t = 0;
+  else if (t > 1) t = 1;
 
-  const proj = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) };
-  return distance(p, proj);
+  const proj = { x: v.x + t * vx, y: v.y + t * vy };
+  return distanceSq(p, proj);
 }

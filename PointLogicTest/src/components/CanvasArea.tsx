@@ -1,6 +1,6 @@
 import React from "react";
 import type { MyPoint, WayPoint } from "../App";
-import { distance, pointToSegmentDistance } from "../utils/distance";
+import { distanceSq, pointToSegmentDistanceSq } from "../utils/distance";
 
 interface Props {
   myPoints: MyPoint[];
@@ -41,19 +41,50 @@ const CanvasArea: React.FC<Props> = ({
     } else {
       const targetWay = ways.find(w => w.id === selectedWay);
       if (targetWay) {
-        // way 좌표
         targetWay.points.forEach((p, idx) => {
-          let color = "red";
-          myPoints.forEach(mp => {
-            if (distance(mp, p) <= threshold) color = "blue";
-            if (idx < targetWay.points.length - 1) {
-              const segP1 = targetWay.points[idx];
-              const segP2 = targetWay.points[idx + 1];
-              if (pointToSegmentDistance(mp, segP1, segP2) <= threshold) {
-                color = "green";
-              }
+          // 먼저 weight 초기화
+          let tempWeight = 0;
+          let color: "red" | "green" | "blue" = "red";
+          const thresholdSq = threshold * threshold;
+
+          for (const mp of myPoints) {
+            // 조건1: 점-점 거리
+            if (distanceSq(mp, p) <= thresholdSq) {
+              color = "blue";
+              // 파란색이면 더 이상의 체크 불필요
+              break;
             }
-          });
+          }
+
+          if (color !== "blue") {
+            // 조건2 누적 체크
+            for (const mp of myPoints) {
+              // 왼쪽 세그먼트
+              if (idx - 1 >= 0) {
+                const s1 = targetWay.points[idx - 1];
+                const s2 = p;
+                if (pointToSegmentDistanceSq(mp, s1, s2) <= thresholdSq) {
+                  tempWeight += 1;
+                }
+              }
+              // 오른쪽 세그먼트
+              if (idx + 1 < targetWay.points.length) {
+                const s1 = p;
+                const s2 = targetWay.points[idx + 1];
+                if (pointToSegmentDistanceSq(mp, s1, s2) <= thresholdSq) {
+                  tempWeight += 1;
+                }
+              }
+              // 만약 tempWeight이 충분히 커졌으면 더 검사 안 해도 됨
+              if (tempWeight >= 2) break;
+            }
+
+            if (tempWeight >= 2) {
+              color = "green";
+            }
+          }
+
+          // draw
           ctx.beginPath();
           ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
           ctx.fillStyle = color;

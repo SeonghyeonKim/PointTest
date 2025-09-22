@@ -5,6 +5,8 @@ interface Props {
   setThreshold: (val: number) => void;
   showMyPoints: boolean;
   setShowMyPoints: (val: boolean) => void;
+  onUndo: () => void;
+  canUndo: boolean;
 }
 
 const ControlPanel: React.FC<Props> = ({
@@ -14,6 +16,8 @@ const ControlPanel: React.FC<Props> = ({
   setThreshold,
   showMyPoints,
   setShowMyPoints,
+  onUndo,
+  canUndo,
 }) => {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -40,6 +44,9 @@ const ControlPanel: React.FC<Props> = ({
       </div>
       <div style={{ display: "flex", gap: "0.5rem" }}>
         <button onClick={onSave}>저장</button>
+        <button onClick={onUndo} disabled={!canUndo}>
+          이전
+        </button>
         <button onClick={onReset}>초기화</button>
       </div>
     </div>
