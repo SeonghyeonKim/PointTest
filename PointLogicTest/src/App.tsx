@@ -1,8 +1,9 @@
+// src/App.tsx
+
 import { useState } from "react";
 import CanvasArea from "./components/CanvasArea";
-import WaySelector from "./components/WaySelector";
-import CoordinateList from "./components/CoordinateList";
 import ControlPanel from "./components/ControlPanel";
+import CoordinateList from "./components/CoordinateList";
 
 export interface MyPoint {
   x: number;
@@ -16,6 +17,7 @@ export interface WayPoint {
   seq: number;
   wayNum: number;
   weight: number;
+  color: "gray" | "red" | "blue" | "green";
 }
 
 function App() {
@@ -30,24 +32,33 @@ function App() {
   const [selectedWay, setSelectedWay] = useState<"me" | number>("me");
   const [threshold, setThreshold] = useState<number>(50);
   const [showMyPoints, setShowMyPoints] = useState<boolean>(false);
+  const [forceMyDotMode, setForceMyDotMode] = useState<boolean>(false);
+  const [hasExecuted, setHasExecuted] = useState<boolean>(false);
+  const [greenThreshold, setGreenThreshold] = useState<number>(0.05);
 
   const handleAddPoint = (x: number, y: number) => {
-    if (selectedWay === "me") {
-      setMyPoints(prev => [
-        ...prev,
-        { x, y, seq: prev.length + 1 }
-      ]);
+    if (forceMyDotMode || selectedWay === "me") {
+      // 내 좌표 찍기
+      setMyPoints(prev => [...prev, { x, y, seq: prev.length + 1 }]);
     } else {
+      // way에 점 추가
       setWays(prev =>
         prev.map(w =>
           w.id === selectedWay
             ? {
-              ...w,
-              points: [
-                ...w.points,
-                { x, y, seq: w.points.length + 1, wayNum: w.id, weight: 0 }
-              ]
-            }
+                ...w,
+                points: [
+                  ...w.points,
+                  {
+                    x,
+                    y,
+                    seq: w.points.length + 1,
+                    wayNum: w.id,
+                    weight: 0,
+                    color: "gray",
+                  },
+                ],
+              }
             : w
         )
       );
@@ -55,11 +66,10 @@ function App() {
   };
 
   const handleUndo = () => {
-    if (selectedWay === "me") {
+    if (forceMyDotMode || selectedWay === "me") {
       setMyPoints(prev => {
         if (prev.length === 0) return prev;
         const newArr = prev.slice(0, prev.length - 1);
-        // seq 재정렬
         return newArr.map((p, idx) => ({ ...p, seq: idx + 1 }));
       });
     } else {
@@ -68,27 +78,54 @@ function App() {
           if (w.id !== selectedWay) return w;
           if (w.points.length === 0) return w;
           const newPts = w.points.slice(0, w.points.length - 1);
-          // seq 재정렬
-          const reseq = newPts.map((p, idx) => ({
-            ...p,
-            seq: idx + 1
-          }));
-          return {
-            ...w,
-            points: reseq
-          };
+          const reseq = newPts.map((p, idx) => ({ ...p, seq: idx + 1 }));
+          return { ...w, points: reseq };
         })
       );
     }
   };
 
   const handleSave = () => {
-    console.log("저장된 데이터:", { myPoints, ways });
+    console.log("저장된 데이터", { myPoints, ways });
+    // 여기서 서버 저장 등 동작 추가 가능
   };
 
   const handleReset = () => {
-    setMyPoints([]);
-    setWays(ways.map(w => ({ ...w, points: [] })));
+    if (selectedWay === "me") setMyPoints([]);
+    else
+      setWays(
+        ways.map(w => {
+          if (w.id !== selectedWay) return w;
+          return { ...w, points: [] };
+        })
+      );
+  };
+
+  const handleExecute = () => {
+    setHasExecuted(true);
+  };
+
+  const handleResetColors = () => {
+    // 색 다시 회색으로
+    setWays(prev =>
+      prev.map(w => ({
+        ...w,
+        points: w.points.map(p => ({
+          ...p,
+          color: "gray",
+        })),
+      }))
+    );
+    setHasExecuted(false);
+  };
+
+  const canUndo = () => {
+    if (forceMyDotMode || selectedWay === "me") {
+      return myPoints.length > 0;
+    } else {
+      const way = ways.find(w => w.id === selectedWay);
+      return way !== undefined && way.points.length > 0;
+    }
   };
 
   return (
@@ -98,30 +135,42 @@ function App() {
         ways={ways}
         selectedWay={selectedWay}
         threshold={threshold}
+        greenThreshold={greenThreshold}
         showMyPoints={showMyPoints}
+        forceMyDotMode={forceMyDotMode}
+        hasExecuted={hasExecuted}
         onAddPoint={handleAddPoint}
       />
       <div style={{ marginLeft: "1rem" }}>
-        <WaySelector selectedWay={selectedWay} setSelectedWay={setSelectedWay} />
+        <div>
+          <button onClick={() => setSelectedWay("me")}>내 좌표</button>
+          {[1, 2, 3, 4, 5].map(id => (
+            <button key={id} onClick={() => setSelectedWay(id)}>
+              way {id}
+            </button>
+          ))}
+        </div>
         <CoordinateList
           myPoints={myPoints}
           ways={ways}
-        // selectedWay={selectedWay}
-        // showMyPoints={showMyPoints}
+          // selectedWay={selectedWay}
+          // showMyPoints={showMyPoints}
         />
         <ControlPanel
           onSave={handleSave}
+          onUndo={handleUndo}
           onReset={handleReset}
+          onExecute={handleExecute}
+          onResetColors={handleResetColors}
           threshold={threshold}
           setThreshold={setThreshold}
           showMyPoints={showMyPoints}
           setShowMyPoints={setShowMyPoints}
-          onUndo={handleUndo}
-          canUndo={
-            selectedWay === "me"
-              ? myPoints.length > 0
-              : ways.find(w => w.id === selectedWay)?.points.length > 0
-          }
+          forceMyDotMode={forceMyDotMode}
+          setForceMyDotMode={setForceMyDotMode}
+          canUndo={canUndo()}
+          greenThreshold={greenThreshold}
+          setGreenThreshold={setGreenThreshold}
         />
       </div>
     </div>

@@ -1,4 +1,6 @@
-import React from "react";
+// src/components/CanvasArea.tsx
+
+import React, { useEffect } from "react";
 import type { MyPoint, WayPoint } from "../App";
 import { distanceSq, pointToSegmentDistanceSq } from "../utils/distance";
 
@@ -7,110 +9,222 @@ interface Props {
   ways: { id: number; points: WayPoint[] }[];
   selectedWay: "me" | number;
   threshold: number;
+  greenThreshold: number;
   showMyPoints: boolean;
+  forceMyDotMode: boolean;
+  hasExecuted: boolean;
   onAddPoint: (x: number, y: number) => void;
 }
+
+const inverseDistance = (
+  d: number,
+  p: number = 2,
+  eps: number = 1e-6
+): number => {
+  // 거리 d가 클수록 가중치 작아짐
+  return 1 / (d + eps) ** p;
+};
 
 const CanvasArea: React.FC<Props> = ({
   myPoints,
   ways,
   selectedWay,
   threshold,
+  greenThreshold,
   showMyPoints,
+  forceMyDotMode,
+  hasExecuted,
   onAddPoint,
 }) => {
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+
+    const displayWidth = rect.width;
+    const displayHeight = rect.height;
+
+    const actualWidth = canvas.width;
+    const actualHeight = canvas.height;
+
+    const scaleX = actualWidth / displayWidth;
+    const scaleY = actualHeight / displayHeight;
+
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
     onAddPoint(x, y);
   };
 
   const draw = (ctx: CanvasRenderingContext2D) => {
-    ctx.clearRect(0, 0, 800, 500);
+    // 먼저 clear
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    // threshold에 의한 거리의 제곱
+    const thresholdSq = threshold * threshold;
 
-    if (selectedWay === "me") {
-      // 내 좌표만 표시
-      myPoints.forEach(p => {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
-        ctx.fillStyle = "gray";
-        ctx.fill();
-        ctx.fillText(`M-${p.seq}`, p.x + 10, p.y);
-      });
-    } else {
+    if (selectedWay !== "me") {
       const targetWay = ways.find(w => w.id === selectedWay);
       if (targetWay) {
+        // 연결선
+        if (targetWay.points.length > 1) {
+          ctx.beginPath();
+          ctx.strokeStyle = "gray";
+          ctx.lineWidth = 1;
+          const first = targetWay.points[0];
+          ctx.moveTo(first.x, first.y);
+          for (let i = 1; i < targetWay.points.length; i++) {
+            const p = targetWay.points[i];
+            ctx.lineTo(p.x, p.y);
+          }
+          ctx.stroke();
+        }
+
+        // 선 버퍼
+        if (targetWay.points.length > 1 && hasExecuted) {
+          ctx.beginPath();
+          const first = targetWay.points[0];
+          ctx.moveTo(first.x, first.y);
+          for (let i = 1; i < targetWay.points.length; i++) {
+            const p = targetWay.points[i];
+            ctx.lineTo(p.x, p.y);
+          }
+          ctx.strokeStyle = "rgba(25, 11, 255, 0.15)";
+          ctx.lineWidth = threshold * 2;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.stroke();
+        }
+
+        // 점들에 대해 가중치 계산 + 색 결정
         targetWay.points.forEach((p, idx) => {
-          // 먼저 weight 초기화
-          let tempWeight = 0;
-          let color: "red" | "green" | "blue" = "red";
-          const thresholdSq = threshold * threshold;
-
-          for (const mp of myPoints) {
-            // 조건1: 점-점 거리
-            if (distanceSq(mp, p) <= thresholdSq) {
-              color = "blue";
-              // 파란색이면 더 이상의 체크 불필요
-              break;
+          // 1) 조건1 먼저: 가장 가까운 내 좌표와의 거리 가중치
+          let maxPointWeight = 0;
+          myPoints.forEach(mp => {
+            // 점-점 거리
+            const dSq = distanceSq(mp, p);
+            const d = Math.sqrt(dSq);
+            if (d <= threshold) {
+              // 임계값 내에 들어오면 "최대" 가중치
+              maxPointWeight = Infinity; // 또는 그냥 아주 큰 값
+            } else {
+              const w = inverseDistance(d, 2);
+              if (w > maxPointWeight) {
+                maxPointWeight = w;
+              }
             }
+          });
+
+          // colorToDraw 기본
+          let colorToDraw: "gray" | "blue" | "green" | "red" = "gray";
+          let computedWeight = 0;
+
+          if (hasExecuted) {
+            if (maxPointWeight === Infinity) {
+              // 조건1 만족
+              colorToDraw = "blue";
+              computedWeight += computedWeight = greenThreshold;
+            } else {
+              // 조건2: 선분 거리 기반 가중치 누적
+              let sumSegmentWeight = 0;
+              myPoints.forEach(mp => {
+                // 왼쪽 segment
+                if (idx - 1 >= 0) {
+                  const s1 = targetWay.points[idx - 1];
+                  const s2 = p;
+                  const dSegSq = pointToSegmentDistanceSq(mp, s1, s2);
+                  const dSeg = Math.sqrt(dSegSq);
+                  if (dSeg <= threshold) {
+                    // 임계값 내면 최대 또는 큰 가중치?
+                    sumSegmentWeight += inverseDistance(dSeg, 2);
+                  }
+                }
+                // 오른쪽 segment
+                if (idx + 1 < targetWay.points.length) {
+                  const s1 = p;
+                  const s2 = targetWay.points[idx + 1];
+                  const dSegSq = pointToSegmentDistanceSq(mp, s1, s2);
+                  const dSeg = Math.sqrt(dSegSq);
+                  if (dSeg <= threshold) {
+                    sumSegmentWeight += inverseDistance(dSeg, 2);
+                  }
+                }
+              });
+
+              computedWeight = sumSegmentWeight;
+
+              // 특정 수치 기준 넘으면 초록
+              if (sumSegmentWeight >= greenThreshold) {
+                colorToDraw = "green";
+              } else {
+                colorToDraw = "red";
+              }
+            }
+          } else {
+            // 실행 안 했으면 회색
+            colorToDraw = "gray";
           }
 
-          if (color !== "blue") {
-            // 조건2 누적 체크
-            for (const mp of myPoints) {
-              // 왼쪽 세그먼트
-              if (idx - 1 >= 0) {
-                const s1 = targetWay.points[idx - 1];
-                const s2 = p;
-                if (pointToSegmentDistanceSq(mp, s1, s2) <= thresholdSq) {
-                  tempWeight += 1;
-                }
-              }
-              // 오른쪽 세그먼트
-              if (idx + 1 < targetWay.points.length) {
-                const s1 = p;
-                const s2 = targetWay.points[idx + 1];
-                if (pointToSegmentDistanceSq(mp, s1, s2) <= thresholdSq) {
-                  tempWeight += 1;
-                }
-              }
-              // 만약 tempWeight이 충분히 커졌으면 더 검사 안 해도 됨
-              if (tempWeight >= 2) break;
-            }
+          // p.weight 갱신 (state 관리 가능하면, 아니면 임시로 여기서만)
+          // 만약 mutable 하게 저장 가능하면:
+          p.weight = computedWeight;
 
-            if (tempWeight >= 2) {
-              color = "green";
-            }
-          }
+          // 반경 그리기
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, threshold, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(255, 11, 25, 0.08)";
+          ctx.fill();
 
-          // draw
+          // 점 그리기
           ctx.beginPath();
           ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = color;
+          ctx.fillStyle = colorToDraw;
           ctx.fill();
-          ctx.fillText(`W${p.wayNum}-${p.seq}`, p.x + 10, p.y);
+
+          // 텍스트: seq 및 weight
+          ctx.fillStyle = "black";
+          ctx.font = "12px sans-serif";
+          const wText =
+            computedWeight === Infinity ? "∞" : computedWeight.toFixed(3);
+          ctx.fillText(`W${p.wayNum}-${p.seq} (w:${wText})`, p.x + 10, p.y);
         });
 
-        // 옵션: 내 좌표도 같이 표시
+        // 내 좌표 같이 보기
         if (showMyPoints) {
-          myPoints.forEach(p => {
+          myPoints.forEach(mp => {
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+            ctx.arc(mp.x, mp.y, 8, 0, Math.PI * 2);
             ctx.fillStyle = "gray";
             ctx.fill();
-            ctx.fillText(`M-${p.seq}`, p.x + 10, p.y);
+            ctx.fillText(`M-${mp.seq}`, mp.x + 10, mp.y);
           });
         }
       }
+    } else {
+      // selectedWay == "me" or 찍기 모드 일 경우: 내 좌표만 그리고
+      myPoints.forEach(mp => {
+        ctx.beginPath();
+        ctx.arc(mp.x, mp.y, 8, 0, Math.PI * 2);
+        ctx.fillStyle = "gray";
+        ctx.fill();
+        ctx.fillText(`M-${mp.seq}`, mp.x + 10, mp.y);
+      });
     }
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
     const ctx = canvas.getContext("2d");
-    if (ctx) draw(ctx);
-  }, [myPoints, ways, selectedWay, threshold, showMyPoints]);
+    if (ctx) {
+      draw(ctx);
+    }
+  }, [
+    myPoints,
+    ways,
+    selectedWay,
+    threshold,
+    showMyPoints,
+    forceMyDotMode,
+    hasExecuted,
+  ]);
 
   return (
     <canvas
