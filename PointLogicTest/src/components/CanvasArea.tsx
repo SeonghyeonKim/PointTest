@@ -118,50 +118,55 @@ const CanvasArea: React.FC<Props> = ({
           let computedWeight = 0;
 
           if (hasExecuted) {
+            let sumSegmentWeight = 0;
+
             if (maxPointWeight === Infinity) {
               // 조건1 만족
               colorToDraw = "blue";
-              computedWeight += computedWeight = greenThreshold;
-            } else {
-              // 조건2: 선분 거리 기반 가중치 누적
-              let sumSegmentWeight = 0;
-              myPoints.forEach(mp => {
-                // 왼쪽 segment
-                if (idx - 1 >= 0) {
-                  const s1 = targetWay.points[idx - 1];
-                  const s2 = p;
-                  const dSegSq = pointToSegmentDistanceSq(mp, s1, s2);
-                  const dSeg = Math.sqrt(dSegSq);
-                  if (dSeg <= threshold) {
-                    // 임계값 내면 최대 또는 큰 가중치?
-                    sumSegmentWeight += inverseDistance(dSeg, 2);
-                  }
-                }
-                // 오른쪽 segment
-                if (idx + 1 < targetWay.points.length) {
-                  const s1 = p;
-                  const s2 = targetWay.points[idx + 1];
-                  const dSegSq = pointToSegmentDistanceSq(mp, s1, s2);
-                  const dSeg = Math.sqrt(dSegSq);
-                  if (dSeg <= threshold) {
-                    sumSegmentWeight += inverseDistance(dSeg, 2);
-                  }
-                }
-              });
+              computedWeight += greenThreshold;
+            }
 
-              computedWeight = sumSegmentWeight;
-
-              // 특정 수치 기준 넘으면 초록
-              if (sumSegmentWeight >= greenThreshold) {
-                colorToDraw = "green";
-              } else {
-                colorToDraw = "red";
+            // 조건2: 선분 거리 기반 가중치 누적
+            myPoints.forEach(mp => {
+              // 왼쪽 segment
+              if (idx - 1 >= 0) {
+                const s1 = targetWay.points[idx - 1];
+                const s2 = p;
+                const dSegSq = pointToSegmentDistanceSq(mp, s1, s2);
+                const dSeg = Math.sqrt(dSegSq);
+                if (dSeg <= threshold) {
+                  // 임계값 내면 최대 또는 큰 가중치?
+                  sumSegmentWeight += inverseDistance(dSeg, 2);
+                }
               }
+              // 오른쪽 segment
+              if (idx + 1 < targetWay.points.length) {
+                const s1 = p;
+                const s2 = targetWay.points[idx + 1];
+                const dSegSq = pointToSegmentDistanceSq(mp, s1, s2);
+                const dSeg = Math.sqrt(dSegSq);
+                if (dSeg <= threshold) {
+                  sumSegmentWeight += inverseDistance(dSeg, 2);
+                }
+              }
+            });
+
+            computedWeight += sumSegmentWeight;
+
+            // 특정 수치 기준 넘으면 초록
+            if (colorToDraw === "blue") {
+              colorToDraw = "blue";
+            } else if (sumSegmentWeight >= greenThreshold) {
+              colorToDraw = "green";
+            } else {
+              colorToDraw = "red";
             }
           } else {
             // 실행 안 했으면 회색
             colorToDraw = "gray";
           }
+
+
 
           // p.weight 갱신 (state 관리 가능하면, 아니면 임시로 여기서만)
           // 만약 mutable 하게 저장 가능하면:
