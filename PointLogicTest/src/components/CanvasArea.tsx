@@ -2,7 +2,7 @@
 
 import React, { useEffect } from "react";
 import type { MyPoint, WayPoint } from "../App";
-import { distanceSq, pointToSegmentDistanceSq } from "../utils/distance";
+import { distanceSq, pointToSegment, pointToSegmentDistanceSq } from "../utils/distance";
 
 interface Props {
   myPoints: MyPoint[];
@@ -59,10 +59,10 @@ const CanvasArea: React.FC<Props> = ({
     // 먼저 clear
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     // threshold에 의한 거리의 제곱
-    const thresholdSq = threshold * threshold;
 
     if (selectedWay !== "me") {
       const targetWay = ways.find(w => w.id === selectedWay);
+
       if (targetWay) {
         // 연결선
         if (targetWay.points.length > 1) {
@@ -94,83 +94,95 @@ const CanvasArea: React.FC<Props> = ({
           ctx.stroke();
         }
 
-        // 점들에 대해 가중치 계산 + 색 결정
         targetWay.points.forEach((p, idx) => {
-          // 1) 조건1 먼저: 가장 가까운 내 좌표와의 거리 가중치
-          let maxPointWeight = 0;
-          myPoints.forEach(mp => {
-            // 점-점 거리
-            const dSq = distanceSq(mp, p);
-            const d = Math.sqrt(dSq);
-            if (d <= threshold) {
-              // 임계값 내에 들어오면 "최대" 가중치
-              maxPointWeight = Infinity; // 또는 그냥 아주 큰 값
-            } else {
-              const w = inverseDistance(d, 2);
-              if (w > maxPointWeight) {
-                maxPointWeight = w;
-              }
-            }
-          });
-
-          // colorToDraw 기본
-          let colorToDraw: "gray" | "blue" | "green" | "red" = "gray";
+          // 1) 조건1 먼저: 점-점 거리 검사
           let computedWeight = 0;
+          let colorToDraw: "gray" | "blue" | "green" | "red" = "gray";
 
           if (hasExecuted) {
-            let sumSegmentWeight = 0;
 
-            if (maxPointWeight === Infinity) {
-              // 조건1 만족
-              colorToDraw = "blue";
-              computedWeight += greenThreshold;
+            for (const mp of myPoints) {
+              // 조건 1: 점-점 거리 검사
+              const d = (
+                Math.pow(mp.x - p.x, 2) + Math.pow(mp.y - p.y, 2)
+              ) ** 0.5;
+
+              if (d <= threshold) {
+                colorToDraw = "blue";
+                computedWeight += greenThreshold;
+                continue;
+              }
+
+              // 다른 원에 속하는 경우 continue
+              let flag = 0;
+              targetWay.points.forEach((p2, idx2) => {
+                if (idx2 === idx) return;
+                const d2 = (
+                  Math.pow(mp.x - p2.x, 2) + Math.pow(mp.y - p2.y, 2)
+                ) ** 0.5;
+                if (d2 <= threshold) flag = 1;
+              });
+              if (flag) continue;
+
+              // 조건 2: 수선의 발 검사
+              if (idx - 1 >= 0) {
+                const T = pointToSegment(mp, p, targetWay.points[idx - 1]);
+
+                const d = (
+                  Math.pow(T.x - mp.x, 2) + Math.pow(T.y - mp.y, 2)
+                ) ** 0.5;
+
+                if (d <= threshold) {
+                  const totalDistance = (
+                    Math.pow(p.x - targetWay.points[idx - 1].x, 2) +
+                    Math.pow(p.y - targetWay.points[idx - 1].y, 2)
+                  ) ** 0.5;
+
+                  const dist = (
+                    Math.pow(T.x - targetWay.points[idx - 1].x, 2) +
+                    Math.pow(T.y - targetWay.points[idx - 1].y, 2)
+                  ) ** 0.5;
+
+                  computedWeight += greenThreshold * (dist / totalDistance);
+                }
+              }
+
+              if (idx + 1 < targetWay.points.length) {
+                const T = pointToSegment(mp, p, targetWay.points[idx + 1]);
+
+                const d = (
+                  Math.pow(T.x - mp.x, 2) + Math.pow(T.y - mp.y, 2)
+                ) ** 0.5;
+
+                if (d <= threshold) {
+                  const totalDistance = (
+                    Math.pow(p.x - targetWay.points[idx + 1].x, 2) +
+                    Math.pow(p.y - targetWay.points[idx + 1].y, 2)
+                  ) ** 0.5;
+
+                  const dist = (
+                    Math.pow(T.x - targetWay.points[idx + 1].x, 2) +
+                    Math.pow(T.y - targetWay.points[idx + 1].y, 2)
+                  ) ** 0.5;
+
+                  computedWeight += greenThreshold * (dist / totalDistance);
+                }
+              }
             }
 
-            // 조건2: 선분 거리 기반 가중치 누적
-            myPoints.forEach(mp => {
-              // 왼쪽 segment
-              if (idx - 1 >= 0) {
-                const s1 = targetWay.points[idx - 1];
-                const s2 = p;
-                const dSegSq = pointToSegmentDistanceSq(mp, s1, s2);
-                const dSeg = Math.sqrt(dSegSq);
-                if (dSeg <= threshold) {
-                  // 임계값 내면 최대 또는 큰 가중치?
-                  sumSegmentWeight += inverseDistance(dSeg, 2);
-                }
-              }
-              // 오른쪽 segment
-              if (idx + 1 < targetWay.points.length) {
-                const s1 = p;
-                const s2 = targetWay.points[idx + 1];
-                const dSegSq = pointToSegmentDistanceSq(mp, s1, s2);
-                const dSeg = Math.sqrt(dSegSq);
-                if (dSeg <= threshold) {
-                  sumSegmentWeight += inverseDistance(dSeg, 2);
-                }
-              }
-            });
-
-            computedWeight += sumSegmentWeight;
-
-            // 특정 수치 기준 넘으면 초록
-            if (colorToDraw === "blue") {
+            // 만약 computedWeight 기준 초과하면 초록, 아니면 빨강
+            if (colorToDraw === 'blue') {
               colorToDraw = "blue";
-            } else if (sumSegmentWeight >= greenThreshold) {
+            }
+            else if (computedWeight >= greenThreshold) {
               colorToDraw = "green";
             } else {
               colorToDraw = "red";
             }
-          } else {
-            // 실행 안 했으면 회색
-            colorToDraw = "gray";
+
+            // p.weight 갱신
+            p.weight = computedWeight;
           }
-
-
-
-          // p.weight 갱신 (state 관리 가능하면, 아니면 임시로 여기서만)
-          // 만약 mutable 하게 저장 가능하면:
-          p.weight = computedWeight;
 
           // 반경 그리기
           ctx.beginPath();
