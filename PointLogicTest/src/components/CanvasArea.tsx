@@ -16,6 +16,17 @@ interface Props {
   onAddPoint: (x: number, y: number) => void;
 }
 
+function angleBetweenVectors(ax: number, ay: number, bx: number, by: number): number {
+  const dot = ax * bx + ay * by;
+  const normA = Math.sqrt(ax * ax + ay * ay);
+  const normB = Math.sqrt(bx * bx + by * by);
+  if (normA === 0 || normB === 0) return 0;
+  const cosTheta = Math.min(1, Math.max(-1, dot / (normA * normB)));
+  let deg = (Math.acos(cosTheta) * 180) / Math.PI; // degree
+  if (deg > 90) deg = 180 - deg; // 항상 예각으로 변환
+  return deg;
+}
+
 const inverseDistance = (
   d: number,
   p: number = 2,
@@ -100,7 +111,6 @@ const CanvasArea: React.FC<Props> = ({
           let colorToDraw: "gray" | "blue" | "green" | "red" = "gray";
 
           if (hasExecuted) {
-
             for (const mp of myPoints) {
               // 조건 1: 점-점 거리 검사
               const d = (
@@ -127,81 +137,112 @@ const CanvasArea: React.FC<Props> = ({
               // 조건 2: 수선의 발 검사
               if (idx - 1 >= 0) {
                 const T = pointToSegment(mp, p, targetWay.points[idx - 1]);
-
-                const d = (
-                  Math.pow(T.x - mp.x, 2) + Math.pow(T.y - mp.y, 2)
-                ) ** 0.5;
+                const d = Math.hypot(T.x - mp.x, T.y - mp.y);
 
                 if (d <= threshold) {
-                  const totalDistance = (
-                    Math.pow(p.x - targetWay.points[idx - 1].x, 2) +
-                    Math.pow(p.y - targetWay.points[idx - 1].y, 2)
-                  ) ** 0.5;
+                  const totalDistance = Math.hypot(
+                    p.x - targetWay.points[idx - 1].x,
+                    p.y - targetWay.points[idx - 1].y
+                  );
+                  const dist = Math.hypot(
+                    T.x - targetWay.points[idx - 1].x,
+                    T.y - targetWay.points[idx - 1].y
+                  );
 
-                  const dist = (
-                    Math.pow(T.x - targetWay.points[idx - 1].x, 2) +
-                    Math.pow(T.y - targetWay.points[idx - 1].y, 2)
-                  ) ** 0.5;
 
-                  computedWeight += greenThreshold * (dist / totalDistance);
+                  // 내 좌표의 현재/이전 벡터와 way segment 벡터 각도 계산
+                  if (mp.seq > 1) {
+                    const prevMp = myPoints.find(m => m.seq === mp.seq - 1);
+                    if (prevMp) {
+                      const ux = mp.x - prevMp.x;
+                      const uy = mp.y - prevMp.y;
+                      const vx = p.x - targetWay.points[idx - 1].x;
+                      const vy = p.y - targetWay.points[idx - 1].y;
+
+
+                      const angle = angleBetweenVectors(ux, uy, vx, vy);
+                      let factor = 1.0;
+                      if (angle > 30 && angle <= 60) factor = 0.7;
+                      else if (angle > 60 && angle <= 90) factor = 0.3;
+
+
+                      computedWeight += greenThreshold * (dist / totalDistance) * factor;
+                    }
+                  } else {
+                    computedWeight += greenThreshold * (dist / totalDistance);
+                  }
                 }
               }
 
               if (idx + 1 < targetWay.points.length) {
                 const T = pointToSegment(mp, p, targetWay.points[idx + 1]);
-
-                const d = (
-                  Math.pow(T.x - mp.x, 2) + Math.pow(T.y - mp.y, 2)
-                ) ** 0.5;
+                const d = Math.hypot(T.x - mp.x, T.y - mp.y);
 
                 if (d <= threshold) {
-                  const totalDistance = (
-                    Math.pow(p.x - targetWay.points[idx + 1].x, 2) +
-                    Math.pow(p.y - targetWay.points[idx + 1].y, 2)
-                  ) ** 0.5;
+                  const totalDistance = Math.hypot(
+                    p.x - targetWay.points[idx + 1].x,
+                    p.y - targetWay.points[idx + 1].y
+                  );
+                  const dist = Math.hypot(
+                    T.x - targetWay.points[idx + 1].x,
+                    T.y - targetWay.points[idx + 1].y
+                  );
 
-                  const dist = (
-                    Math.pow(T.x - targetWay.points[idx + 1].x, 2) +
-                    Math.pow(T.y - targetWay.points[idx + 1].y, 2)
-                  ) ** 0.5;
+                  if (mp.seq > 1) {
+                    const prevMp = myPoints.find(m => m.seq === mp.seq - 1);
+                    if (prevMp) {
+                      const ux = mp.x - prevMp.x;
+                      const uy = mp.y - prevMp.y;
+                      const vx = targetWay.points[idx + 1].x - p.x;
+                      const vy = targetWay.points[idx + 1].y - p.y;
 
-                  computedWeight += greenThreshold * (dist / totalDistance);
+
+                      const angle = angleBetweenVectors(ux, uy, vx, vy);
+                      let factor = 1.0;
+                      if (angle > 30 && angle <= 60) factor = 0.7;
+                      else if (angle > 60 && angle <= 90) factor = 0.3;
+
+                      computedWeight += greenThreshold * (dist / totalDistance) * factor;
+                    }
+                  } else {
+                    computedWeight += greenThreshold * (dist / totalDistance);
+                  }
                 }
               }
+
+              // 만약 computedWeight 기준 초과하면 초록, 아니면 빨강
+              if (colorToDraw === 'blue') {
+                colorToDraw = "blue";
+              }
+              else if (computedWeight >= greenThreshold) {
+                colorToDraw = "green";
+              } else {
+                colorToDraw = "red";
+              }
+
+              // p.weight 갱신
+              p.weight = computedWeight;
             }
 
-            // 만약 computedWeight 기준 초과하면 초록, 아니면 빨강
-            if (colorToDraw === 'blue') {
-              colorToDraw = "blue";
-            }
-            else if (computedWeight >= greenThreshold) {
-              colorToDraw = "green";
-            } else {
-              colorToDraw = "red";
-            }
+            // 반경 그리기
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, threshold, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255, 11, 25, 0.08)";
+            ctx.fill();
 
-            // p.weight 갱신
-            p.weight = computedWeight;
+            // 점 그리기
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+            ctx.fillStyle = colorToDraw;
+            ctx.fill();
+
+            // 텍스트: seq 및 weight
+            ctx.fillStyle = "black";
+            ctx.font = "12px sans-serif";
+            const wText =
+              computedWeight === Infinity ? "∞" : computedWeight.toFixed(3);
+            ctx.fillText(`W${p.wayNum}-${p.seq} (w:${wText})`, p.x + 10, p.y);
           }
-
-          // 반경 그리기
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, threshold, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(255, 11, 25, 0.08)";
-          ctx.fill();
-
-          // 점 그리기
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = colorToDraw;
-          ctx.fill();
-
-          // 텍스트: seq 및 weight
-          ctx.fillStyle = "black";
-          ctx.font = "12px sans-serif";
-          const wText =
-            computedWeight === Infinity ? "∞" : computedWeight.toFixed(3);
-          ctx.fillText(`W${p.wayNum}-${p.seq} (w:${wText})`, p.x + 10, p.y);
         });
 
         // 내 좌표 같이 보기
